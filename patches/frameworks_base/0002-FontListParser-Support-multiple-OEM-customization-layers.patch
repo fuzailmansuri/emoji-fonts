@@ -1,0 +1,207 @@
+diff --git a/graphics/java/android/graphics/FontListParser.java b/graphics/java/android/graphics/FontListParser.java
+index 72760a23ffed..d4a0d6596a19 100644
+--- a/graphics/java/android/graphics/FontListParser.java
++++ b/graphics/java/android/graphics/FontListParser.java
+@@ -39,6 +39,7 @@ import java.io.IOException;
+ import java.io.InputStream;
+ import java.util.ArrayList;
+ import java.util.Collections;
++import java.util.HashMap;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+@@ -110,17 +111,35 @@ public class FontListParser {
+             long lastModifiedDate,
+             int configVersion
+     ) throws IOException, XmlPullParserException {
+-        FontCustomizationParser.Result oemCustomization;
++        final List<String> customizationXmlPaths = new ArrayList<>();
+         if (oemCustomizationXmlPath != null) {
+-            try (InputStream is = new FileInputStream(oemCustomizationXmlPath)) {
+-                oemCustomization = FontCustomizationParser.parse(is, productFontDir,
+-                        updatableFontMap);
++            customizationXmlPaths.add(oemCustomizationXmlPath);
++        }
++        return parse(fontsXmlPath, systemFontDir, customizationXmlPaths, productFontDir,
++                updatableFontMap, lastModifiedDate, configVersion);
++    }
++
++    /**
++     * Parses system font config XMLs with multiple OEM customization layers.
++     */
++    public static FontConfig parse(
++            @NonNull String fontsXmlPath,
++            @NonNull String systemFontDir,
++            @NonNull List<String> customizationXmlPaths,
++            @Nullable String productFontDir,
++            @Nullable Map<String, File> updatableFontMap,
++            long lastModifiedDate,
++            int configVersion
++    ) throws IOException, XmlPullParserException {
++        FontCustomizationParser.Result oemCustomization = new FontCustomizationParser.Result();
++        for (String customizationXmlPath : customizationXmlPaths) {
++            try (InputStream is = new FileInputStream(customizationXmlPath)) {
++                oemCustomization = mergeCustomizationResults(
++                        oemCustomization,
++                        FontCustomizationParser.parse(is, productFontDir, updatableFontMap));
+             } catch (IOException e) {
+-                // OEM customization may not exists. Ignoring
+-                oemCustomization = new FontCustomizationParser.Result();
++                // OEM customization may not exist. Ignoring.
+             }
+-        } else {
+-            oemCustomization = new FontCustomizationParser.Result();
+         }
+ 
+         try (InputStream is = new FileInputStream(fontsXmlPath)) {
+@@ -132,6 +151,23 @@ public class FontListParser {
+         }
+     }
+ 
++    private static FontCustomizationParser.Result mergeCustomizationResults(
++            @NonNull FontCustomizationParser.Result base,
++            @NonNull FontCustomizationParser.Result extra) {
++        final Map<String, NamedFamilyList> namedFamilies =
++                new HashMap<>(base.getAdditionalNamedFamilies());
++        namedFamilies.putAll(extra.getAdditionalNamedFamilies());
++
++        final List<FontConfig.Customization.LocaleFallback> localeFallbacks =
++                new ArrayList<>(base.getLocaleFamilyCustomizations());
++        localeFallbacks.addAll(extra.getLocaleFamilyCustomizations());
++
++        final List<FontConfig.Alias> aliases = new ArrayList<>(base.getAdditionalAliases());
++        aliases.addAll(extra.getAdditionalAliases());
++
++        return new FontCustomizationParser.Result(namedFamilies, localeFallbacks, aliases);
++    }
++
+     /**
+      * Parses the familyset tag in font.xml
+      * @param parser a XML pull parser
+diff --git a/graphics/java/android/graphics/fonts/SystemFonts.java b/graphics/java/android/graphics/fonts/SystemFonts.java
+index 399345abd8ab..dfdfcf4f217e 100644
+--- a/graphics/java/android/graphics/fonts/SystemFonts.java
++++ b/graphics/java/android/graphics/fonts/SystemFonts.java
+@@ -25,6 +25,7 @@ import android.annotation.Nullable;
+ import android.graphics.FontListParser;
+ import android.graphics.Typeface;
+ import android.os.LocaleList;
++import android.os.SystemProperties;
+ import android.ravenwood.annotation.RavenwoodReplace;
+ import android.text.FontConfig;
+ import android.util.ArrayMap;
+@@ -63,6 +64,20 @@ public final class SystemFonts {
+     /** @hide */
+     public static final String SYSTEM_FONT_DIR = getSystemFontDir();
+     private static final String OEM_XML = "/product/etc/fonts_customization.xml";
++    private static final String OEM_EMOJI_XML_IOS =
++            "/product/etc/fonts_customization_emoji_ios.xml";
++    private static final String OEM_EMOJI_XML_SAMSUNG =
++            "/product/etc/fonts_customization_emoji_samsung.xml";
++    private static final String OEM_EMOJI_XML_SWIFTUI =
++            "/product/etc/fonts_customization_emoji_swiftui.xml";
++    private static final String OEM_EMOJI_XML_FACEBOOK =
++            "/product/etc/fonts_customization_emoji_facebook.xml";
++    private static final String PROP_EMOJI_STYLE = "persist.sys.yaap_emoji_style";
++    private static final String EMOJI_STYLE_ANDROID = "android";
++    private static final String EMOJI_STYLE_IOS = "ios";
++    private static final String EMOJI_STYLE_SAMSUNG = "samsung";
++    private static final String EMOJI_STYLE_SWIFTUI = "swiftui";
++    private static final String EMOJI_STYLE_FACEBOOK = "facebook";
+     /** @hide */
+     public static final String OEM_FONT_DIR = "/product/fonts/";
+ 
+@@ -352,8 +367,9 @@ public final class SystemFonts {
+             long lastModifiedDate,
+             int configVersion
+     ) {
+-        return getSystemFontConfigInternal(FONTS_XML, SYSTEM_FONT_DIR, OEM_XML, OEM_FONT_DIR,
+-                updatableFontMap, lastModifiedDate, configVersion);
++        return getSystemFontConfigInternal(FONTS_XML, SYSTEM_FONT_DIR, OEM_XML,
++                getEmojiCustomizationXml(), OEM_FONT_DIR, updatableFontMap,
++                lastModifiedDate, configVersion);
+     }
+ 
+     /**
+@@ -368,8 +384,9 @@ public final class SystemFonts {
+             long lastModifiedDate,
+             int configVersion
+     ) {
+-        return getSystemFontConfigInternal(fontsXml, SYSTEM_FONT_DIR, OEM_XML, OEM_FONT_DIR,
+-                updatableFontMap, lastModifiedDate, configVersion);
++        return getSystemFontConfigInternal(fontsXml, SYSTEM_FONT_DIR, OEM_XML,
++                getEmojiCustomizationXml(), OEM_FONT_DIR, updatableFontMap,
++                lastModifiedDate, configVersion);
+     }
+ 
+     /**
+@@ -377,22 +394,23 @@ public final class SystemFonts {
+      * @hide
+      */
+     public static @NonNull FontConfig getSystemPreinstalledFontConfig() {
+-        return getSystemFontConfigInternal(FONTS_XML, SYSTEM_FONT_DIR, OEM_XML, OEM_FONT_DIR, null,
+-                0, 0);
++        return getSystemFontConfigInternal(FONTS_XML, SYSTEM_FONT_DIR, OEM_XML,
++                getEmojiCustomizationXml(), OEM_FONT_DIR, null, 0, 0);
+     }
+ 
+     /**
+      * @hide
+      */
+     public static @NonNull FontConfig getSystemPreinstalledFontConfigFromLegacyXml() {
+-        return getSystemFontConfigInternal(LEGACY_FONTS_XML, SYSTEM_FONT_DIR, OEM_XML, OEM_FONT_DIR,
+-                null, 0, 0);
++        return getSystemFontConfigInternal(LEGACY_FONTS_XML, SYSTEM_FONT_DIR, OEM_XML,
++                getEmojiCustomizationXml(), OEM_FONT_DIR, null, 0, 0);
+     }
+ 
+     /* package */ static @NonNull FontConfig getSystemFontConfigInternal(
+             @NonNull String fontsXml,
+             @NonNull String systemFontDir,
+             @Nullable String oemXml,
++            @Nullable String emojiXml,
+             @Nullable String productFontDir,
+             @Nullable Map<String, File> updatableFontMap,
+             long lastModifiedDate,
+@@ -400,8 +418,15 @@ public final class SystemFonts {
+     ) {
+         try {
+             Log.i(TAG, "Loading font config from " + fontsXml);
+-            return FontListParser.parse(fontsXml, systemFontDir, oemXml, productFontDir,
+-                                                updatableFontMap, lastModifiedDate, configVersion);
++            final List<String> customizationXmls = new ArrayList<>();
++            if (oemXml != null) {
++                customizationXmls.add(oemXml);
++            }
++            if (emojiXml != null) {
++                customizationXmls.add(emojiXml);
++            }
++            return FontListParser.parse(fontsXml, systemFontDir, customizationXmls,
++                    productFontDir, updatableFontMap, lastModifiedDate, configVersion);
+         } catch (IOException e) {
+             Log.e(TAG, "Failed to open/read system font configurations.", e);
+             return new FontConfig(Collections.emptyList(), Collections.emptyList(),
+@@ -413,6 +438,23 @@ public final class SystemFonts {
+         }
+     }
+ 
++    private static @Nullable String getEmojiCustomizationXml() {
++        final String style = SystemProperties.get(PROP_EMOJI_STYLE, EMOJI_STYLE_ANDROID);
++        if (EMOJI_STYLE_IOS.equals(style)) {
++            return OEM_EMOJI_XML_IOS;
++        }
++        if (EMOJI_STYLE_SAMSUNG.equals(style)) {
++            return OEM_EMOJI_XML_SAMSUNG;
++        }
++        if (EMOJI_STYLE_SWIFTUI.equals(style)) {
++            return OEM_EMOJI_XML_SWIFTUI;
++        }
++        if (EMOJI_STYLE_FACEBOOK.equals(style)) {
++            return OEM_EMOJI_XML_FACEBOOK;
++        }
++        return null;
++    }
++
+     /**
+      * Build the system fallback from FontConfig.
+      * @hide

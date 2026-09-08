@@ -1,0 +1,35 @@
+//
+// SPDX-FileCopyrightText: 2024 The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+
+prebuilt_etc {
+    name: "fonts_customization.xml",
+    src: "fonts_customization.xml",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "fonts_customization_emoji_ios.xml",
+    src: "fonts_customization_emoji_ios.xml",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "fonts_customization_emoji_samsung.xml",
+    src: "fonts_customization_emoji_samsung.xml",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "fonts_customization_emoji_swiftui.xml",
+    src: "fonts_customization_emoji_swiftui.xml",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "fonts_customization_emoji_facebook.xml",
+    src: "fonts_customization_emoji_facebook.xml",
+    product_specific: true,
+}
