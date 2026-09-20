@@ -1,0 +1,6 @@
+id=ios_emoji
+name=Apple iOS Emoji
+version=v1.0
+versionCode=100
+author=Fuzail Mansuri
+description=System-wide Apple iOS emoji font replacement for Android 10-16 with /data/fonts purge, flag font support, and GMS neutralization.
